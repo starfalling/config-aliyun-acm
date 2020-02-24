@@ -181,6 +181,7 @@ class Client implements ClientInterface
         } catch (\Throwable $throwable) {
             $this->logger->error(sprintf('%s[line:%d] in %s', $throwable->getMessage(), $throwable->getLine(), $throwable->getFile()));
         }
+        return null;
     }
 
     private function buildRequestHeader(
