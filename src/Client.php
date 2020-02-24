@@ -22,6 +22,9 @@ use RuntimeException;
 
 class Client implements ClientInterface
 {
+    public const PATH_CONFIG = '/diamond-server/config.co';
+    public const PATH_BASE_STONE = '/diamond-server/basestone.do';
+
     /**
      * @var Closure
      */
@@ -63,6 +66,27 @@ class Client implements ClientInterface
         $this->logger = $container->get(StdoutLoggerInterface::class);
     }
 
+    public function getAllConfig()
+    {
+        $namespace = $this->config->get('aliyun_acm.namespace', '');
+        $pageSize = 100;
+        $result = [];
+        for ($pageNo = 1; ; $pageNo++) {
+            $response = Json::decode($this->request('GET', self::PATH_BASE_STONE, [
+                'query' => [
+                    'method' => 'getAllConfigByTenant',
+                    'tenant' => $namespace,
+                    'pageNo' => $pageNo,
+                    'pageSize' => $pageSize,
+                ]
+            ]));
+            if (empty($response) || empty($response['pageItems'])) break;
+            $result = array_merge($result, $response['pageItems']);
+            if ($response['pagesAvailable'] <= $response['pageNumber']) break;
+        }
+        return $result;
+    }
+
     public function pull(): array
     {
         $namespace = $this->config->get('aliyun_acm.namespace', '');
@@ -81,6 +105,23 @@ class Client implements ClientInterface
         $group = $this->config->get('aliyun_acm.group', 'DEFAULT_GROUP');
         $dataId = $this->config->get('aliyun_acm.data_id', '');
         $dataIds = is_array($dataId) ? $dataId : [$dataId];
+        $result = [];
+        foreach ($this->listen($dataIds) as $dataId) {
+            $this->logger->info("config {$dataId} in group {$group} changed");
+            $newConfig = $this->pullData($namespace, $group, $dataId);
+            $result = array_merge_recursive($result, $newConfig);
+        }
+        return $result;
+    }
+
+    /**
+     * listen for the change event of some config items
+     * @return string[] the changed config data ids as an array
+     */
+    public function listen(array $dataIds): array
+    {
+        $namespace = $this->config->get('aliyun_acm.namespace', '');
+        $group = $this->config->get('aliyun_acm.group', 'DEFAULT_GROUP');
         $probeModifyRequest = '';
         foreach (array_values(array_unique($dataIds)) as $dataId) {
             $cache_key = "{$namespace}\x02{$group}\x02{$dataId}";
@@ -95,19 +136,17 @@ class Client implements ClientInterface
                 'Probe-Modify-Request' => $probeModifyRequest
             ]
         ];
-        $result = [];
-        $response = urldecode($this->request('POST', $options));
+        $changedDataIds = [];
+        $response = urldecode($this->request('POST', self::PATH_CONFIG, $options));
         foreach (explode("\x01", $response) as $response_item) {
             $segs = explode("\x02", $response_item);
             if (count($segs) < 3) continue;
-            $this->logger->info("config {$segs[0]} in group {$segs[1]} changed");
-            $newConfig = $this->pullData($segs[2], $segs[1], $segs[0]);
-            $result = array_merge_recursive($result, $newConfig);
+            $changedDataIds[] = $segs[0];
         }
-        return $result;
+        return $changedDataIds;
     }
 
-    public function pullDatas(string $namespace, string $group, array $dataIds): array
+    private function pullDatas(string $namespace, string $group, array $dataIds): array
     {
         $result = [];
         foreach (array_values(array_unique($dataIds)) as $dataId) {
@@ -125,7 +164,7 @@ class Client implements ClientInterface
                 'dataId' => $dataId,
             ]
         ];
-        $response_content = $this->request('GET', $options);
+        $response_content = $this->request('GET', self::PATH_CONFIG, $options);
         if (! empty($response_content)) {
             $cache_key = "{$namespace}\x02{$group}\x02{$dataId}";
             $this->loadedConfigContentMd5[$cache_key] = md5($response_content);
@@ -134,7 +173,7 @@ class Client implements ClientInterface
         return [];
     }
 
-    public function request(string $method, array $options): ?string
+    public function request(string $method, string $path, array $options): ?string
     {
         $client = $this->client;
         if (!$client instanceof \GuzzleHttp\Client) {
@@ -171,7 +210,7 @@ class Client implements ClientInterface
             $server = $this->servers[array_rand($this->servers)];
 
             // Get config
-            $response = $client->request($method, "http://{$server}:8080/diamond-server/config.co", array_merge_recursive([
+            $response = $client->request($method, "http://{$server}:8080{$path}", array_merge_recursive([
                 'headers' => $this->buildRequestHeader($accessKey, $secretKey, $securityToken, $namespace, $group),
             ], $options));
             if ($response->getStatusCode() !== 200) {
