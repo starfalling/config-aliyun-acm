@@ -82,7 +82,7 @@ class Client implements ClientInterface
         $dataId = $this->config->get('aliyun_acm.data_id', '');
         $dataIds = is_array($dataId) ? $dataId : [$dataId];
         $probeModifyRequest = '';
-        foreach ($dataIds as $dataId) {
+        foreach (array_values(array_unique($dataIds)) as $dataId) {
             $cache_key = "{$namespace}\x02{$group}\x02{$dataId}";
             $md5 = $this->loadedConfigContentMd5[$cache_key] ?? '';
             $probeModifyRequest .= "{$dataId}\x02{$group}\x02{$md5}\x02{$namespace}\x01";
@@ -110,7 +110,7 @@ class Client implements ClientInterface
     public function pullDatas(string $namespace, string $group, array $dataIds): array
     {
         $result = [];
-        foreach ($dataIds as $dataId) {
+        foreach (array_values(array_unique($dataIds)) as $dataId) {
             $result = array_merge_recursive($result, $this->pullData($namespace, $group, $dataId));
         }
         return $result;
