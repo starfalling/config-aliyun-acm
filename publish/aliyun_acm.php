@@ -12,7 +12,7 @@ declare(strict_types=1);
 
 return [
     'enable' => false,
-    'interval' => 5,
+    'interval' => 1,
     'endpoint' => env('ALIYUN_ACM_ENDPOINT', 'acm.aliyun.com'),
     'namespace' => env('ALIYUN_ACM_NAMESPACE', ''),
     'data_id' => env('ALIYUN_ACM_DATA_ID', ''),

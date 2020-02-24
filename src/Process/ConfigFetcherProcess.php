@@ -65,7 +65,7 @@ class ConfigFetcherProcess extends AbstractProcess
     public function handle(): void
     {
         while (true) {
-            $config = $this->client->pull();
+            $config = $this->client->longPull();
             if ($config !== $this->cacheConfig) {
                 $this->cacheConfig = $config;
                 $workerCount = $this->server->setting['worker_num'] + $this->server->setting['task_worker_num'] - 1;
@@ -84,7 +84,7 @@ class ConfigFetcherProcess extends AbstractProcess
                 }
             }
 
-            sleep($this->config->get('aliyun_acm.interval', 5));
+            sleep($this->config->get('aliyun_acm.interval', 1));
         }
     }
 }

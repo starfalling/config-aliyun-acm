@@ -23,11 +23,6 @@ use RuntimeException;
 class Client implements ClientInterface
 {
     /**
-     * @var array
-     */
-    public $fetchConfig;
-
-    /**
      * @var Closure
      */
     private $client;
@@ -52,6 +47,11 @@ class Client implements ClientInterface
      */
     private $cachedSecurityCredentials = [];
 
+    /**
+     * @var array
+     */
+    private $loadedConfigContentMd5 = [];
+
     public function __construct(ContainerInterface $container)
     {
         /**
@@ -65,15 +65,85 @@ class Client implements ClientInterface
 
     public function pull(): array
     {
+        $namespace = $this->config->get('aliyun_acm.namespace', '');
+        $group = $this->config->get('aliyun_acm.group', 'DEFAULT_GROUP');
+        $dataId = $this->config->get('aliyun_acm.data_id', '');
+        $dataIds = is_array($dataId) ? $dataId : [$dataId];
+        return $this->pullDatas($namespace, $group, $dataIds);
+    }
+
+    /**
+     * Pull the config values from configuration center with long pull, and then update the Config values.
+     */
+    public function longPull(): array
+    {
+        $namespace = $this->config->get('aliyun_acm.namespace', '');
+        $group = $this->config->get('aliyun_acm.group', 'DEFAULT_GROUP');
+        $dataId = $this->config->get('aliyun_acm.data_id', '');
+        $dataIds = is_array($dataId) ? $dataId : [$dataId];
+        $probeModifyRequest = '';
+        foreach ($dataIds as $dataId) {
+            $cache_key = "{$namespace}\x02{$group}\x02{$dataId}";
+            $md5 = $this->loadedConfigContentMd5[$cache_key] ?? '';
+            $probeModifyRequest .= "{$dataId}\x02{$group}\x02{$md5}\x02{$namespace}\x01";
+        }
+        $options = [
+            'headers' => [
+                'longPullingTimeout' => 60000
+            ],
+            'form_params' => [
+                'Probe-Modify-Request' => $probeModifyRequest
+            ]
+        ];
+        $result = [];
+        $response = urldecode($this->request('POST', $options));
+        foreach (explode("\x01", $response) as $response_item) {
+            $segs = explode("\x02", $response_item);
+            if (count($segs) < 3) continue;
+            $this->logger->info("config {$segs[0]} in group {$segs[1]} changed");
+            $newConfig = $this->pullData($segs[2], $segs[1], $segs[0]);
+            $result = array_merge_recursive($result, $newConfig);
+        }
+        return $result;
+    }
+
+    public function pullDatas(string $namespace, string $group, array $dataIds): array
+    {
+        $result = [];
+        foreach ($dataIds as $dataId) {
+            $result = array_merge_recursive($result, $this->pullData($namespace, $group, $dataId));
+        }
+        return $result;
+    }
+
+    public function pullData(string $namespace, string $group, string $dataId): array
+    {
+        $options = [
+            'query' => [
+                'tenant' => $namespace,
+                'group' => $group,
+                'dataId' => $dataId,
+            ]
+        ];
+        $response_content = $this->request('GET', $options);
+        if (! empty($response_content)) {
+            $cache_key = "{$namespace}\x02{$group}\x02{$dataId}";
+            $this->loadedConfigContentMd5[$cache_key] = md5($response_content);
+            return Json::decode($response_content);
+        }
+        return [];
+    }
+
+    public function request(string $method, array $options): ?string
+    {
         $client = $this->client;
-        if (! $client instanceof \GuzzleHttp\Client) {
+        if (!$client instanceof \GuzzleHttp\Client) {
             throw new RuntimeException('aliyun acm: Invalid http client.');
         }
 
         // ACM config
         $endpoint = $this->config->get('aliyun_acm.endpoint', 'acm.aliyun.com');
         $namespace = $this->config->get('aliyun_acm.namespace', '');
-        $dataId = $this->config->get('aliyun_acm.data_id', '');
         $group = $this->config->get('aliyun_acm.group', 'DEFAULT_GROUP');
         $accessKey = $this->config->get('aliyun_acm.access_key', '');
         $secretKey = $this->config->get('aliyun_acm.secret_key', '');
@@ -88,12 +158,9 @@ class Client implements ClientInterface
             }
         }
 
-        // Sign
-        $timestamp = round(microtime(true) * 1000);
-        $sign = base64_encode(hash_hmac('sha1', "{$namespace}+{$group}+{$timestamp}", $secretKey, true));
 
         try {
-            if (! $this->servers) {
+            if (!$this->servers) {
                 // server list
                 $response = $client->get("http://{$endpoint}:8080/diamond-server/diamond");
                 if ($response->getStatusCode() !== 200) {
@@ -104,32 +171,35 @@ class Client implements ClientInterface
             $server = $this->servers[array_rand($this->servers)];
 
             // Get config
-            $response = $client->get("http://{$server}:8080/diamond-server/config.co", [
-                'headers' => [
-                    'Spas-AccessKey' => $accessKey,
-                    'timeStamp' => $timestamp,
-                    'Spas-Signature' => $sign,
-                    'Spas-SecurityToken' => $securityToken ?? '',
-                    'Content-Type' => 'application/x-www-form-urlencoded; charset=utf-8',
-                ],
-                'query' => [
-                    'tenant' => $namespace,
-                    'dataId' => $dataId,
-                    'group' => $group,
-                ],
-            ]);
+            $response = $client->request($method, "http://{$server}:8080/diamond-server/config.co", array_merge_recursive([
+                'headers' => $this->buildRequestHeader($accessKey, $secretKey, $securityToken, $namespace, $group),
+            ], $options));
             if ($response->getStatusCode() !== 200) {
                 throw new RuntimeException('Get config failed from Aliyun ACM.');
             }
-            $content = $response->getBody()->getContents();
-            if (! $content) {
-                return [];
-            }
-            return Json::decode($content);
+            return $response->getBody()->getContents();
         } catch (\Throwable $throwable) {
             $this->logger->error(sprintf('%s[line:%d] in %s', $throwable->getMessage(), $throwable->getLine(), $throwable->getFile()));
-            return [];
         }
+    }
+
+    private function buildRequestHeader(
+        string $accessKey,
+        string $secretKey,
+        ?string $securityToken,
+        string $namespace,
+        string $group
+    ): array
+    {
+        $timestamp = round(microtime(true) * 1000);
+        $sign = base64_encode(hash_hmac('sha1', "{$namespace}+{$group}+{$timestamp}", $secretKey, true));
+        return [
+            'Spas-AccessKey' => $accessKey,
+            'timeStamp' => $timestamp,
+            'Spas-Signature' => $sign,
+            'Spas-SecurityToken' => $securityToken ?? '',
+            'Content-Type' => 'application/x-www-form-urlencoded; charset=utf-8',
+        ];
     }
 
     /**

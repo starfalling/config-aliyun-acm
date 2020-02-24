@@ -18,4 +18,9 @@ interface ClientInterface
      * Pull the config values from configuration center, and then update the Config values.
      */
     public function pull(): array;
+
+    /**
+     * Pull the config values from configuration center with long pull, and then update the Config values.
+     */
+    public function longPull(): array;
 }
