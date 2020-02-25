@@ -87,6 +87,24 @@ class Client implements ClientInterface
         return $result;
     }
 
+    public function update(string $dataId, string $content): bool
+    {
+        $namespace = $this->config->get('aliyun_acm.namespace', '');
+        $group = $this->config->get('aliyun_acm.group', 'DEFAULT_GROUP');
+        $response = $this->request('POST', self::PATH_BASE_STONE, [
+            'query' => [
+                'method' => 'syncUpdateAll',
+            ],
+            'form_params' => [
+                'tenant' => $namespace,
+                'group' => $group,
+                'dataId' => $dataId,
+                'content' => $content,
+            ]
+        ]);
+        return trim($response) === 'OK';
+    }
+
     public function pull(): array
     {
         $namespace = $this->config->get('aliyun_acm.namespace', '');
