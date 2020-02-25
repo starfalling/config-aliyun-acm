@@ -209,9 +209,17 @@ class Client implements ClientInterface
             }
             $server = $this->servers[array_rand($this->servers)];
 
-            // Get config
+            // Submit the request
+            if ($path === self::PATH_BASE_STONE && $method === 'GET') {
+                // sign check of this special request doesn't need $group param
+                // https://help.aliyun.com/document_detail/69590.html
+                $requestHeaders = $this->buildRequestHeaders($accessKey, $secretKey, $securityToken, $namespace, null);
+            } else {
+                $requestHeaders = $this->buildRequestHeaders($accessKey, $secretKey, $securityToken, $namespace, $group);
+            }
+            $requestHeaders =
             $response = $client->request($method, "http://{$server}:8080{$path}", array_merge_recursive([
-                'headers' => $this->buildRequestHeader($accessKey, $secretKey, $securityToken, $namespace, $group),
+                'headers' => $requestHeaders,
             ], $options));
             if ($response->getStatusCode() !== 200) {
                 throw new RuntimeException('Get config failed from Aliyun ACM.');
@@ -223,16 +231,17 @@ class Client implements ClientInterface
         return null;
     }
 
-    private function buildRequestHeader(
+    private function buildRequestHeaders(
         string $accessKey,
         string $secretKey,
         ?string $securityToken,
         string $namespace,
-        string $group
+        ?string $group
     ): array
     {
         $timestamp = round(microtime(true) * 1000);
-        $sign = base64_encode(hash_hmac('sha1', "{$namespace}+{$group}+{$timestamp}", $secretKey, true));
+        $sign_content = is_null($group) ? "{$namespace}+{$timestamp}" : "{$namespace}+{$group}+{$timestamp}";
+        $sign = base64_encode(hash_hmac('sha1', $sign_content, $secretKey, true));
         return [
             'Spas-AccessKey' => $accessKey,
             'timeStamp' => $timestamp,
