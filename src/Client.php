@@ -258,15 +258,18 @@ class Client implements ClientInterface
     ): array
     {
         $timestamp = round(microtime(true) * 1000);
-        $sign_content = is_null($group) ? "{$namespace}+{$timestamp}" : "{$namespace}+{$group}+{$timestamp}";
-        $sign = base64_encode(hash_hmac('sha1', $sign_content, $secretKey, true));
-        return [
+        $signContent = is_null($group) ? "{$namespace}+{$timestamp}" : "{$namespace}+{$group}+{$timestamp}";
+        $sign = base64_encode(hash_hmac('sha1', $signContent, $secretKey, true));
+        $headers = [
             'Spas-AccessKey' => $accessKey,
             'timeStamp' => $timestamp,
             'Spas-Signature' => $sign,
-            'Spas-SecurityToken' => $securityToken ?? '',
             'Content-Type' => 'application/x-www-form-urlencoded; charset=utf-8',
         ];
+        if(! empty($securityToken)) {
+            $headers['Spas-SecurityToken'] = $securityToken;
+        }
+        return $headers;
     }
 
     /**
