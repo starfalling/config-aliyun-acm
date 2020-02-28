@@ -217,15 +217,15 @@ class Client implements ClientInterface
 
 
         try {
-            if (!$this->servers) {
+            if (empty($this->servers[$endpoint])) {
                 // server list
                 $response = $client->get("http://{$endpoint}:8080/diamond-server/diamond");
                 if ($response->getStatusCode() !== 200) {
                     throw new RuntimeException('Get server list failed from Aliyun ACM.');
                 }
-                $this->servers = array_filter(explode("\n", $response->getBody()->getContents()));
+                $this->servers[$endpoint] = array_filter(explode("\n", $response->getBody()->getContents()));
             }
-            $server = $this->servers[array_rand($this->servers)];
+            $server = $this->servers[$endpoint][array_rand($this->servers[$endpoint])];
 
             // Submit the request
             if ($path === self::PATH_BASE_STONE && $method === 'GET') {
