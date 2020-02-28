@@ -235,7 +235,6 @@ class Client implements ClientInterface
             } else {
                 $requestHeaders = $this->buildRequestHeaders($accessKey, $secretKey, $securityToken, $namespace, $group);
             }
-            $requestHeaders =
             $response = $client->request($method, "http://{$server}:8080{$path}", array_merge_recursive([
                 'headers' => $requestHeaders,
             ], $options));
