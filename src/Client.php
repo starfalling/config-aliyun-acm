@@ -223,7 +223,7 @@ class Client implements ClientInterface
                 }
                 $this->servers[$endpoint] = array_filter(explode("\n", $response->getBody()->getContents()));
             }
-            $server = $this->servers[array_rand($this->servers)];
+            $server = $this->servers[$endpoint][array_rand($this->servers[$endpoint])];
 
             // Submit the request
             if ($path === self::PATH_BASE_STONE && $method === 'GET') {
