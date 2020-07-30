@@ -5,11 +5,10 @@ declare(strict_types=1);
  * This file is part of Hyperf.
  *
  * @link     https://www.hyperf.io
- * @document https://doc.hyperf.io
+ * @document https://hyperf.wiki
  * @contact  group@hyperf.io
  * @license  https://github.com/hyperf/hyperf/blob/master/LICENSE
  */
-
 namespace Hyperf\ConfigAliyunAcm\Process;
 
 use Hyperf\ConfigAliyunAcm\ClientInterface;
@@ -40,7 +39,7 @@ class ConfigFetcherProcess extends AbstractProcess
     private $config;
 
     /**
-     * @var string
+     * @var array
      */
     private $cacheConfig;
 
@@ -51,15 +50,17 @@ class ConfigFetcherProcess extends AbstractProcess
         $this->config = $container->get(ConfigInterface::class);
     }
 
-    public function bind(Server $server): void
+    public function bind($server): void
     {
         $this->server = $server;
         parent::bind($server);
     }
 
-    public function isEnable(): bool
+    public function isEnable($server): bool
     {
-        return $this->config->get('aliyun_acm.enable', false);
+        return $server instanceof Server
+            && $this->config->get('aliyun_acm.enable', false)
+            && $this->config->get('aliyun_acm.use_standalone_process', true);
     }
 
     public function handle(): void
