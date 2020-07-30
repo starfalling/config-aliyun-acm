@@ -5,14 +5,13 @@ declare(strict_types=1);
  * This file is part of Hyperf.
  *
  * @link     https://www.hyperf.io
- * @document https://doc.hyperf.io
+ * @document https://hyperf.wiki
  * @contact  group@hyperf.io
  * @license  https://github.com/hyperf/hyperf/blob/master/LICENSE
  */
-
 namespace Hyperf\ConfigAliyunAcm;
 
-use Closure;
+use GuzzleHttp;
 use Hyperf\Contract\ConfigInterface;
 use Hyperf\Contract\StdoutLoggerInterface;
 use Hyperf\Guzzle\ClientFactory as GuzzleClientFactory;
@@ -26,7 +25,7 @@ class Client implements ClientInterface
     public const PATH_BASE_STONE = '/diamond-server/basestone.do';
 
     /**
-     * @var Closure
+     * @var null|GuzzleHttp\Client
      */
     private $client;
 
@@ -57,9 +56,6 @@ class Client implements ClientInterface
 
     public function __construct(ContainerInterface $container)
     {
-        /**
-         * @var GuzzleClientFactory $clientFactory
-         */
         $clientFactory = $container->get(GuzzleClientFactory::class);
         $this->client = $clientFactory->create();
         $this->config = $container->get(ConfigInterface::class);
@@ -194,7 +190,7 @@ class Client implements ClientInterface
     public function request(string $method, string $path, array $options): ?string
     {
         $client = $this->client;
-        if (!$client instanceof \GuzzleHttp\Client) {
+        if (! $client instanceof GuzzleHttp\Client) {
             throw new RuntimeException('aliyun acm: Invalid http client.');
         }
 
@@ -204,14 +200,16 @@ class Client implements ClientInterface
         $group = $this->config->get('aliyun_acm.group', 'DEFAULT_GROUP');
         $accessKey = $this->config->get('aliyun_acm.access_key', '');
         $secretKey = $this->config->get('aliyun_acm.secret_key', '');
-        $ecsRamRole = $this->config->get('aliyun_acm.ecs_ram_role', '');
-        $securityToken = null;
+        $ecsRamRole = (string) $this->config->get('aliyun_acm.ecs_ram_role', '');
+        $securityToken = [];
         if (empty($accessKey) && ! empty($ecsRamRole)) {
             $securityCredentials = $this->getSecurityCredentialsWithEcsRamRole($ecsRamRole);
             if (! empty($securityCredentials)) {
                 $accessKey = $securityCredentials['AccessKeyId'];
                 $secretKey = $securityCredentials['AccessKeySecret'];
-                $securityToken = $securityCredentials['SecurityToken'];
+                $securityToken = [
+                    'Spas-SecurityToken' => $securityCredentials['SecurityToken'],
+                ];
             }
         }
 
@@ -225,7 +223,7 @@ class Client implements ClientInterface
                 }
                 $this->servers[$endpoint] = array_filter(explode("\n", $response->getBody()->getContents()));
             }
-            $server = $this->servers[$endpoint][array_rand($this->servers[$endpoint])];
+            $server = $this->servers[array_rand($this->servers)];
 
             // Submit the request
             if ($path === self::PATH_BASE_STONE && $method === 'GET') {
@@ -251,7 +249,7 @@ class Client implements ClientInterface
     private function buildRequestHeaders(
         string $accessKey,
         string $secretKey,
-        ?string $securityToken,
+        array $securityToken,
         string $namespace,
         ?string $group
     ): array
@@ -259,16 +257,12 @@ class Client implements ClientInterface
         $timestamp = round(microtime(true) * 1000);
         $signContent = is_null($group) ? "{$namespace}+{$timestamp}" : "{$namespace}+{$group}+{$timestamp}";
         $sign = base64_encode(hash_hmac('sha1', $signContent, $secretKey, true));
-        $headers = [
-            'Spas-AccessKey' => $accessKey,
-            'timeStamp' => $timestamp,
-            'Spas-Signature' => $sign,
-            'Content-Type' => 'application/x-www-form-urlencoded; charset=utf-8',
-        ];
-        if(! empty($securityToken)) {
-            $headers['Spas-SecurityToken'] = $securityToken;
-        }
-        return $headers;
+        return array_merge([
+                    'Spas-AccessKey' => $accessKey,
+                    'timeStamp' => $timestamp,
+                    'Spas-Signature' => $sign,
+                    'Content-Type' => 'application/x-www-form-urlencoded; charset=utf-8',
+                ], $securityToken);
     }
 
     /**
