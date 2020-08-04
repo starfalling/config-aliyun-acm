@@ -98,7 +98,11 @@ class Client implements ClientInterface
                 'content' => $content,
             ]
         ]);
-        return trim($response) === 'OK';
+        if($response) {
+          $result = @json_decode($response);
+          if($result && $result->message === 'OK') return true;
+        }
+        return false;
     }
 
     public function pull(): array
