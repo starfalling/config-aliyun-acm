@@ -114,6 +114,22 @@ class Client implements ClientInterface
         return $this->pullDatas($namespace, $group, $dataIds);
     }
 
+
+    public function pullWithDataId($dataId): array
+    {
+      $namespace = $this->config->get('aliyun_acm.namespace', '');
+      $group = $this->config->get('aliyun_acm.group', 'DEFAULT_GROUP');
+      return $this->pullData($namespace, $group, $dataId);
+    }
+
+    public function pullWithDataIds($dataIds): array
+    {
+      $namespace = $this->config->get('aliyun_acm.namespace', '');
+      $group = $this->config->get('aliyun_acm.group', 'DEFAULT_GROUP');
+      return $this->pullDatas($namespace, $group, $dataIds);
+    }
+
+
     /**
      * Pull the config values from configuration center with long pull, and then update the Config values.
      */
